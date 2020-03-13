@@ -1,10 +1,9 @@
 function main() {
   clearInterval();
   clearWatch();
-  var readDelay = 1000 * 2;
-  var screenDelay = 1000 * 3;
-  var ccsMode = readDelay < 10000 ? 1 : readDelay < 60000 ? 2 : 3;
-
+  var readWriteDelay = 1000 * 15;
+  var csvDelay = 1000 * 60 * 60 * 24;
+  var ccsMode = readWriteDelay < 10000 ? 1 : readWriteDelay < 60000 ? 2 : 3;
 
   function start(){
     screen.drawString("Screen initialized");
@@ -19,67 +18,43 @@ function main() {
   var fs = require("fs");
 
   var sm = new ScreenManager(screen, {fontSize: 10, spacing:15});
+  var meteo = new Float32Array(5);
 
-  var now = new Date();
-  console.log("Meteo station starting: "+now.toString());
-  columns = ['temperature', 'humidity', 'co2', 'voc'];
-  csv = now + ".csv";
-  console.log("csv file: " + csv);
-  fs.writeFileSync(csv, columns.join(','));
+  var csv;
+  var createNewCsv = function() {
+    var columns = ['chip_temperature', 'temperature', 'humidity', 'co2', 'voc'];
+    var now = new Date();
+    csv = now + ".csv";
+    console.log("New csv file: " + csv  + " for date " + now.toString());
+    fs.writeFileSync(csv, columns.join(','));
+  }
+  createNewCsv();
+  var interCsv = setInterval(createNewCsv, csvDelay);
 
-  var meteo = new Float32Array(4);
-  var setTh = function(th) {
-    meteo[0] = th.temp;
-    meteo[1] = th.rh;
+  var drawScreen = function() {
+    sm.clear();
+    sm.info("temp " + meteo[1].toFixed(1));
+    sm.info("hum " + meteo[2].toFixed(0) + "%");
+    sm.info("CO2 " + meteo[3] + " ppm");
+    sm.info("VOC " + meteo[4] + " ppm");
+    screen.flip();
+  };
+
+  var tempHumCb = function(th) {
+    meteo[0] = E.getTemperature();
+    meteo[1] = th.temp;
+    meteo[2] = th.rh;
     gas.setEnvData(th.temp, th.rh);
-  };  
+    co2 = gas.get();
+    meteo[3] = co2.eCO2;
+    meteo[4] = co2.TVOC;
+    fs.appendFileSync(csv, meteo.join(','));
+    drawScreen();
+  };
 
   var interSensor = setInterval(function() {
-    dht.read(setTh);
-    co2 = gas.get();
-    meteo[2] = co2.eCO2;
-    meteo[3] = co2.TVOC;
-    fs.appendFileSync(csv, meteo.join(','));
-  }, readDelay);
-
-  function ScreenManager (screen, config) {
-    config = config ? config : {};
-    this.screen = screen;
-    this.height = 0;
-    this.spacing = config.spacing? config.spacing : 20;
-    this.screen.setFontVector(config.fontSize? config.fontSize : 10);
-  }
-
-  ScreenManager.prototype.info = function (text) {
-    this.screen.drawString(text, 0, this.height);
-    this.height += this.spacing;
-  };
-
-  ScreenManager.prototype.clear = function () {
-    this.screen.clear();
-    this.height = 0;
-  };
-
-  var interScreen = setInterval(function() {
-    sm.clear();
-    sm.info("temp " + meteo[0].toFixed(1));
-    sm.info("hum " + meteo[1].toFixed(0) + "%");
-    sm.info("CO2 " + meteo[2] + " ppm");
-    sm.info("VOC " + meteo[3] + " ppm");
-    screen.flip();
-  }, screenDelay);
-
-  var btnCallback = function(e) {
-    digitalWrite(LED2, 1);
-    setTimeout(function() {
-      digitalWrite(LED2, 0);
-    }, 500);
-  };
-
-  setWatch(btnCallback, BTN, {repeat:true, edge:'rising', debounce:50});
+    dht.read(tempHumCb);
+  }, readWriteDelay);
 }
 E.on('init', main);
 main();
-
-
-

@@ -18,6 +18,3 @@ ScreenManager.prototype.clear = function () {
 
 
 exports = ScreenManager;
-
-
-
