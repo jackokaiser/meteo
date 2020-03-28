@@ -1,12 +1,13 @@
 function main() {
   clearInterval();
   clearWatch();
-  var rw_d = 1;
+  var rw_d = 2;
   var s_d = 30;
   var csv_d = 60 * 60 * 24;
 
   function start(){
     screen.clear();
+    screen.drawString("Screen initialized");
     screen.flip();
   }
 
@@ -37,7 +38,7 @@ function main() {
 
   var drawScreen = function() {
     sm.clear();
-    sm.info("temp ", meteo[1].toFixed(1), ' °');
+    sm.info("temp ", meteo[1].toFixed(1), ' °C');
     sm.info("hum ", meteo[2].toFixed(0), " %");
     sm.info("eCO2 ", meteo[3], " ppm");
     sm.info("VOC ", meteo[4], " ppm");

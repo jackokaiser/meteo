@@ -1,6 +1,9 @@
 function ScreenManager (screen) {
   this.screen = screen;
   this.height = 0;
+  // require("Font8x16").add(Graphics);
+  // this.screen.setFont8x16();
+
   require("FontHaxorNarrow7x17").add(Graphics);
   this.screen.setFontHaxorNarrow7x17();
 
