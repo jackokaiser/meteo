@@ -16,13 +16,13 @@ function main() {
   }
 
   I2C1.setup({scl:B6,sda:B7});
-  var screen = require("SSD1306").connect(I2C1, start, {contrast: 1});
+  var screen = require("SSD1306").connect(I2C1, start);
   var ScreenManager = require("ScreenManager");
   var gas = require("CCS811").connectI2C(I2C1, {int: B4, mode: ccsMode, nWake: B5});
   var dht = require("DHT22").connect(A1);
   var fs = require("fs");
 
-  var sm = new ScreenManager(screen, {vspacing:15, hspacing:50});
+  var sm = new ScreenManager(screen);
   var meteo = new Float32Array(5);
 
   var csv;
@@ -43,8 +43,9 @@ function main() {
     sm.info("hum ", meteo[2].toFixed(0), " %");
     sm.info("eCO2 ", meteo[3], " ppm");
     sm.info("VOC ", meteo[4], " ppm");
-    if ((meteo[3] > co2Warn) || (meteo[2] > humWarn))
-    sm.warn();
+    if ((meteo[3] > co2Warn) || (meteo[2] > humWarn)) {
+      sm.warn();
+    }
     screen.flip();
   };
 
