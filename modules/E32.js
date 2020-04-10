@@ -23,10 +23,15 @@ function waiter(ms) {
 
 // M0 and M1 in binary
 const MODE = {
-  normal: 0,
-  powerSaving: 1,
-  wakeUp: 2,
-  sleep: 3
+  normal: 0b00,
+  powerSaving: 0b01,
+  wakeUp: 0b10,
+  sleep: 0b11
+}
+
+const CMD = {
+  version: [0xC3, 0xC3, 0xC3],
+  reset: [0xC4, 0xC4, 0xC4]
 }
 
 
@@ -50,14 +55,10 @@ function E32(serial, options) {
   if (this.options.debug) this.at.debug();
 
   var lora = this;
-  this.ready().then(function() {
-    console.log("E32 is ready");
-  });
-
   this.macOn = true; // are we in LoRaWAN mode or not?
 }
 
-E32.prototype.cmd = function(cmd, timeout) {
+E32.prototype.send = function(cmd, timeout) {
   var lora = this;
   return new Promise(function(resolve) {
     lora.at.cmd(cmd,timeout,resolve);
@@ -67,33 +68,29 @@ E32.prototype.cmd = function(cmd, timeout) {
 E32.prototype.ready = function() {
   var lora = this;
   return new Promise(function(resolve) {
-    setWatch(resolve, lora.options.AUX, { repeat: false, edge: 'rising'});
+    setWatch(resolve(), lora.options.AUX, { repeat: false, edge: 'rising'});
   });
 };
 
 E32.prototype.setMode = function(name) {
-  this.mode = name;
+  var lora = this
+  lora.mode = name;
   console.log("Mode change to "+name);
-  digitalWrite(this.options.M0, 1);
-  digitalWrite(this.options.M1, 1);
-  // digitalWrite([this.options.M0,this.options.M1], MODE[name]);
+  digitalWrite([lora.options.M0,lora.options.M1], MODE[name]);
   return waiter(1);
 };
 
 // switch to sleep mode, reset and go back to previous mode
 E32.prototype.reset = function() {
-  if (this.mode === 'sleep') {
-    return this.cmd("C4C4C4\r\n",1000);
+  var lora = this;
+  if (lora.mode === 'sleep') {
+    return lora.send(CMD.reset,1000);
   }
   else {
-    lastMode = this.mode;
-    return this.setMode('sleep')
-      .then(function() {
-        return this.cmd("C4C4C4\r\n",1000)
-      })
-      .then(function() {
-        return this.setMode(lastMode);
-      });
+    lastMode = lora.mode;
+    return lora.setMode('sleep')
+      .then(()=>lora.send(CMD.reset,1000))
+      .then(()=>lora.setMode(lastMode));
   }
 };
 
@@ -102,32 +99,31 @@ E32.prototype.getVersion = function() {
   var lora = this;
 
   function parseVersion(d) {
-    console.log("data received: "+d);
+    d = parseInt(d);
     var version = {
-      version: d
+      useless: d & 0xFF000000,
+      frequency: d & 0x00FF0000,
+      version: d & 0x0000FF00,
+      other: d & 0x000000FF
     };
     return version;
   };
-  var resetCmd="C3 C3 C3";
 
   if (lora.mode === 'sleep') {
-    return lora.cmd(resetCmd,1000)
+    return lora.send(CMD.version,1000)
       .then(parseVersion)
   }
   else {
+    var version;
     lastMode = lora.mode;
-    lora.setMode('sleep')
-      .then(function() {
-        return lora.cmd(resetCmd,1000);
-      })
+    return lora.setMode('sleep')
+      .then(()=>lora.send(CMD.version,1000))
       .then(parseVersion)
-      .then(function(v) {
+      .then(function(vn) {
+        version=vn;
         return lora.setMode(lastMode)
-          .then(function() {
-            // closure to return the promise with version
-            return v;
-          });
-      });
+      })
+      .then(()=>version)
   }
 };
 
