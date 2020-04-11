@@ -8,11 +8,12 @@ function toHex(m) {
   return hex;
 }
 
-function fromHex(d, startIdx) {
-  var msg = "";
-  for (var i=startIdx;i<d.length;i+=2)
-    msg += String.fromCharCode(parseInt(d.substr(i,2),16));
-  return msg;
+function toBytes(d, startIdx) {
+  var bytes = [];
+  for (var i=0; i<d.length; ++i) {
+    bytes.push(d.charCodeAt(i))
+  }
+  return bytes;
 }
 
 function waiter(ms) {
@@ -32,6 +33,14 @@ const MODE = {
 const CMD = {
   version: [0xC3, 0xC3, 0xC3],
   reset: [0xC4, 0xC4, 0xC4]
+}
+
+const FREQ = {
+  0x32: 433,
+  0x38: 470,
+  0x45: 868,
+  0x44: 915,
+  0x46: 170
 }
 
 
@@ -76,13 +85,15 @@ E32.prototype.setMode = function(name) {
 // switch to sleep mode, reset and go back to previous mode
 E32.prototype.reset = function() {
   if (this.mode === 'sleep') {
-    return this.send(CMD.reset,1000);
+    return this.send(CMD.reset,1000)
+      .then(()=>this.ready());
   }
   else {
     lastMode = this.mode;
     return this.setMode('sleep')
       .bind(this)
       .then(()=>this.send(CMD.reset,1000))
+      .then(()=>this.ready())
       .then(()=>this.setMode(lastMode));
   }
 };
@@ -90,13 +101,9 @@ E32.prototype.reset = function() {
 E32.prototype.parseVersion = function(d) {
   if (d===undefined) return;
 
-  bytes = []
-  for (var i=0; i<d.length; ++i) {
-    bytes.push(d.charCodeAt(i))
-  }
+  var bytes = toBytes(d);
   this.version = {
-    useless: bytes[0],
-    frequency: bytes[1],
+    frequency: FREQ[bytes[1]],
     version: bytes[2],
     other: bytes[3]
   };
@@ -118,13 +125,6 @@ E32.prototype.getVersion = function() {
       .then(()=>this.version)
   }
 };
-
-// lora.reset()
-//   .then(lora.getVersion)
-//   .then((data) => {
-//     console.log("After all this work, version is: ", data);
-//   });
-
 
 
 // /** Call the callback with the current status as an object.
