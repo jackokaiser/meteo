@@ -53,79 +53,79 @@ function E32(serial, options) {
   this.at = require("AT").connect(serial);
   this.mode = 'normal';
   if (this.options.debug) this.at.debug();
-
-  var lora = this;
   this.macOn = true; // are we in LoRaWAN mode or not?
 }
 
 E32.prototype.send = function(cmd, timeout) {
-  var lora = this;
-  return new Promise(function(resolve) {
-    lora.at.cmd(cmd,timeout,resolve);
-  });
+  return new Promise(resolve => this.at.cmd(cmd,timeout,resolve));
 };
 
 E32.prototype.ready = function() {
-  var lora = this;
-  return new Promise(function(resolve) {
-    setWatch(resolve(), lora.options.AUX, { repeat: false, edge: 'rising'});
-  });
+  return new Promise(resolve => setWatch(resolve,
+                                         this.options.AUX,
+                                         { repeat: false, edge: 'rising' }));
 };
 
 E32.prototype.setMode = function(name) {
-  var lora = this
-  lora.mode = name;
-  console.log("Mode change to "+name);
-  digitalWrite([lora.options.M0,lora.options.M1], MODE[name]);
+  this.mode = name;
+  console.log("Changing mode to "+name);
+  digitalWrite([this.options.M0,this.options.M1], MODE[name]);
   return waiter(1);
 };
 
 // switch to sleep mode, reset and go back to previous mode
 E32.prototype.reset = function() {
-  var lora = this;
-  if (lora.mode === 'sleep') {
-    return lora.send(CMD.reset,1000);
+  if (this.mode === 'sleep') {
+    return this.send(CMD.reset,1000);
   }
   else {
-    lastMode = lora.mode;
-    return lora.setMode('sleep')
-      .then(()=>lora.send(CMD.reset,1000))
-      .then(()=>lora.setMode(lastMode));
+    lastMode = this.mode;
+    return this.setMode('sleep')
+      .bind(this)
+      .then(()=>this.send(CMD.reset,1000))
+      .then(()=>this.setMode(lastMode));
   }
+};
+
+E32.prototype.parseVersion = function(d) {
+  if (d===undefined) return;
+
+  bytes = []
+  for (var i=0; i<d.length; ++i) {
+    bytes.push(d.charCodeAt(i))
+  }
+  this.version = {
+    useless: bytes[0],
+    frequency: bytes[1],
+    version: bytes[2],
+    other: bytes[3]
+  };
+  return this.version;
 };
 
 // switch to sleep mode, get version and go back to previous mode
 E32.prototype.getVersion = function() {
-  var lora = this;
-
-  function parseVersion(d) {
-    d = parseInt(d);
-    var version = {
-      useless: d & 0xFF000000,
-      frequency: d & 0x00FF0000,
-      version: d & 0x0000FF00,
-      other: d & 0x000000FF
-    };
-    return version;
-  };
-
-  if (lora.mode === 'sleep') {
-    return lora.send(CMD.version,1000)
-      .then(parseVersion)
+  if (this.mode === 'sleep') {
+    return this.send(CMD.version,1000)
+      .then(this.parseVersion)
   }
   else {
-    var version;
-    lastMode = lora.mode;
-    return lora.setMode('sleep')
-      .then(()=>lora.send(CMD.version,1000))
-      .then(parseVersion)
-      .then(function(vn) {
-        version=vn;
-        return lora.setMode(lastMode)
-      })
-      .then(()=>version)
+    lastMode = this.mode;
+    return this.setMode('sleep')
+      .then(()=>this.send(CMD.version,1000))
+      .then((d)=>this.parseVersion(d))
+      .then(()=>this.setMode(lastMode))
+      .then(()=>this.version)
   }
 };
+
+// lora.reset()
+//   .then(lora.getVersion)
+//   .then((data) => {
+//     console.log("After all this work, version is: ", data);
+//   });
+
+
 
 // /** Call the callback with the current status as an object.
 //  Includes: EUI, VDD, appEUI, devEUI, band, dataRate, rxDelay1 and rxDelay2 */
