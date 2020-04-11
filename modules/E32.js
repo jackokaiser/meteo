@@ -1,20 +1,12 @@
 /* Copyright (c) 2016 Gordon Williams, Pur3 Ltd. See the file LICENSE for copying permission. */
 
-function toHex(m) {
-  m = E.toString(m);
-  var hex = "";
-  for (var i in m)
-    hex += (m.charCodeAt(i)+256).toString(16).substr(-2);
-  return hex;
-}
-
 function toBytes(d, startIdx) {
   var bytes = [];
-  for (var i=0; i<d.length; ++i) {
+  for (var i=startIdx; i<d.length; ++i) {
     bytes.push(d.charCodeAt(i))
   }
   return bytes;
-}
+};
 
 function waiter(ms) {
   return new Promise(function(resolve) {
@@ -28,12 +20,14 @@ const MODE = {
   powerSaving: 0b01,
   wakeUp: 0b10,
   sleep: 0b11
-}
+};
 
 const CMD = {
+  readSavedParams: [0xC0, 0xC0, 0xC0],
+  readTmpParams: [0xC1, 0xC1, 0xC1],
   version: [0xC3, 0xC3, 0xC3],
   reset: [0xC4, 0xC4, 0xC4]
-}
+};
 
 const FREQ = {
   0x32: 433,
@@ -41,8 +35,35 @@ const FREQ = {
   0x45: 868,
   0x44: 915,
   0x46: 170
-}
+};
 
+const PARITY = {
+  0b00: '8N1',
+  0b01: '8O1',
+  0b10: '8E1',
+  0b11: '8N1'
+};
+
+const BAUDRATE = {
+  0b000: 1200,
+  0b001: 2400,
+  0b010: 4800,
+  0b011: 9600,
+  0b100: 19200,
+  0b110: 57600,
+  0b111: 115200
+};
+
+const AIRRATE = {
+  0b000: 0.3,
+  0b001: 1.2,
+  0b010: 2.4,
+  0b011: 4.8,
+  0b100: 9.6,
+  0b101: 19.2,
+  0b110: 19.2,
+  0b111: 19.2
+};
 
 /** Connect to a E32.
   First argument is the serial device, second is an
@@ -101,13 +122,33 @@ E32.prototype.reset = function() {
 E32.prototype.parseVersion = function(d) {
   if (d===undefined) return;
 
-  var bytes = toBytes(d);
+  var bytes = toBytes(d, 1);
   this.version = {
-    frequency: FREQ[bytes[1]],
-    version: bytes[2],
-    other: bytes[3]
+    frequency: FREQ[bytes[0]],
+    version: bytes[1],
+    other: bytes[2]
   };
   return this.version;
+};
+
+E32.prototype.parseParams = function(d) {
+  console.log("Received data "+d);
+  if (d===undefined) return;
+
+  var bytes = toBytes(d, 0);
+  this.parameters = {
+    saveOnDown: bytes[0] === 0xC0,
+    ADDH: bytes[1],
+    ADDL: bytes[2],
+    SPED: {
+      parity: PARITY[bytes[3] >> 6],
+      baudrate: BAUDRATE[bytes[3] >> 3 & 0b00111],
+      airRate: AIRRATE[bytes[3] & 0b00000111]
+    },
+    CHAN: bytes[4],
+    OPTION: bytes[5]
+  };
+  return this.parameters;
 };
 
 // switch to sleep mode, get version and go back to previous mode
@@ -125,6 +166,22 @@ E32.prototype.getVersion = function() {
       .then(()=>this.version)
   }
 };
+
+E32.prototype.getParams = function() {
+  if (this.mode === 'sleep') {
+    return this.send(CMD.readSavedParams,1000)
+      .then(this.parseParams)
+  }
+  else {
+    lastMode = this.mode;
+    return this.setMode('sleep')
+      .then(()=>this.send(CMD.readSavedParams,1000))
+      .then((d)=>this.parseParams(d))
+      .then(()=>this.setMode(lastMode))
+      .then(()=>this.version)
+  }
+};
+
 
 
 // /** Call the callback with the current status as an object.
