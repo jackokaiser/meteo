@@ -1,6 +1,7 @@
-/* Copyright (c) 2016 Gordon Williams, Pur3 Ltd. See the file LICENSE for copying permission. */
+/* Copyright (c) 2020 Jacques Kaiser. See the file LICENSE for copying permission. */
 
 function toBytes(d, startIdx) {
+  console.log("Converting to bytes");
   var bytes = [];
   for (var i=startIdx; i<d.length; ++i) {
     bytes.push(d.charCodeAt(i))
@@ -23,10 +24,11 @@ const MODE = {
 };
 
 const CMD = {
-  readSavedParams: [0xC0, 0xC0, 0xC0],
-  readTmpParams: [0xC1, 0xC1, 0xC1],
+  readParams: [0xC1, 0xC1, 0xC1],
   version: [0xC3, 0xC3, 0xC3],
-  reset: [0xC4, 0xC4, 0xC4]
+  reset: [0xC4, 0xC4, 0xC4],
+  setTmp: [0xC2],
+  setPersistent: [0xC0]
 };
 
 const FREQ = {
@@ -65,6 +67,21 @@ const AIRRATE = {
   0b111: 19.2
 };
 
+const DEFAULTS = {
+  ADDH: 0x00,
+  ADDL: 0x00,
+  SPED: {
+    parity: 0b00,
+    baudrate: 0b011,
+    airRate: 0b010
+  },
+  CHAN: 0x00,
+  OPTION: {
+    transmission: 0b0,
+    io: 0b1,
+  }
+};
+
 /** Connect to a E32.
   First argument is the serial device, second is an
   object containing:
@@ -80,24 +97,67 @@ const AIRRATE = {
 function E32(serial, options) {
   this.ser = serial;
   this.options = options||{};
-  this.at = require("AT").connect(serial);
+
   this.mode = 'normal';
-  if (this.options.debug) this.at.debug();
   this.macOn = true; // are we in LoRaWAN mode or not?
+
+  this.ser.on('data', this.radioRx);
 }
 
-E32.prototype.send = function(cmd, timeout) {
-  return new Promise(resolve => this.at.cmd(cmd,timeout,resolve));
+E32.prototype.radioRx = function(data) {
+  console.log("data from radio: ",data);
+};
+
+E32.prototype.receiveCmd = function(nbytes, callback) {
+  msg = "";
+  var eventCallback = (c) => {
+    msg+=c;
+    if (msg.length == nbytes) {
+      callback(msg);
+      this.ser.removeListener('data', eventCallback);
+    }
+  }
+  return eventCallback;
+};
+
+E32.prototype.send = function(cmd, timeout, nRxBytes) {
+  var msg = ""
+  console.log("Making promise ");
+  return new Promise(resolve => {
+    if ((nRxBytes) && (nRxBytes > 0)) {
+      // We are expecting to receive some bytes of data
+      console.log("Register callback for "+nRxBytes+" bytes");
+      var dataCallback = this.receiveCmd(nRxBytes, resolve);
+      this.ser.on('data', dataCallback);
+      this.ser.write(cmd);
+    }
+    else {
+      this.ser.write(cmd);
+      resolve();
+    }
+  });
 };
 
 E32.prototype.ready = function() {
-  return new Promise(resolve => setWatch(resolve,
-                                         this.options.AUX,
-                                         { repeat: false, edge: 'rising' }));
+  return new Promise(resolve => {
+    if (digitalRead(this.options.AUX)) resolve();
+    else
+      setWatch(resolve,
+               this.options.AUX,
+               { repeat: false, edge: 'rising' })
+  });
 };
 
 E32.prototype.setMode = function(name) {
+  if (this.mode==name) return Promise.resolve();
   this.mode = name;
+  if (this.mode === 'sleep') {
+    this.ser.removeListener('data', this.radioRx);
+  }
+  else {
+    this.ser.on('data', this.radioRx);
+  }
+
   console.log("Changing mode to "+name);
   digitalWrite([this.options.M0,this.options.M1], MODE[name]);
   return waiter(1);
@@ -112,7 +172,6 @@ E32.prototype.reset = function() {
   else {
     lastMode = this.mode;
     return this.setMode('sleep')
-      .bind(this)
       .then(()=>this.send(CMD.reset,1000))
       .then(()=>this.ready())
       .then(()=>this.setMode(lastMode));
@@ -132,7 +191,6 @@ E32.prototype.parseVersion = function(d) {
 };
 
 E32.prototype.parseParams = function(d) {
-  console.log("Received data "+d);
   if (d===undefined) return;
 
   var bytes = toBytes(d, 0);
@@ -154,13 +212,13 @@ E32.prototype.parseParams = function(d) {
 // switch to sleep mode, get version and go back to previous mode
 E32.prototype.getVersion = function() {
   if (this.mode === 'sleep') {
-    return this.send(CMD.version,1000)
+    return this.send(CMD.version,1000,4)
       .then(this.parseVersion)
   }
   else {
     lastMode = this.mode;
     return this.setMode('sleep')
-      .then(()=>this.send(CMD.version,1000))
+      .then(()=>this.send(CMD.version,1000,4))
       .then((d)=>this.parseVersion(d))
       .then(()=>this.setMode(lastMode))
       .then(()=>this.version)
@@ -169,151 +227,33 @@ E32.prototype.getVersion = function() {
 
 E32.prototype.getParams = function() {
   if (this.mode === 'sleep') {
-    return this.send(CMD.readSavedParams,1000)
+    return this.send(CMD.readParams,1000,6)
       .then(this.parseParams)
   }
   else {
     lastMode = this.mode;
     return this.setMode('sleep')
-      .then(()=>this.send(CMD.readSavedParams,1000))
+      .then(()=>this.send(CMD.readParams,1000,6))
       .then((d)=>this.parseParams(d))
       .then(()=>this.setMode(lastMode))
-      .then(()=>this.version)
+      .then(()=>this.parameters)
   }
 };
 
-
-
-// /** Call the callback with the current status as an object.
-//  Includes: EUI, VDD, appEUI, devEUI, band, dataRate, rxDelay1 and rxDelay2 */
-// E32.prototype.getStatus = function(callback) {
-//   var status = {};
-//   var at = this.at;
-
-//   (new Promise(function(resolve) {
-//     at.cmd("sys get hweui\r\n",500,resolve);
-//   })).then(function(d) {
-//     status.EUI = d;
-//     return new Promise(function(resolve) {
-//       at.cmd("sys get vdd\r\n",500,resolve);
-//     });
-//   }).then(function(d) {
-//     status.VDD = parseInt(d,10)/1000;
-//     return new Promise(function(resolve) {
-//       at.cmd("mac get appeui\r\n",500,resolve);
-//     });
-//   }).then(function(d) {
-//     status.appEUI = d;
-//     return new Promise(function(resolve) {
-//       at.cmd("mac get deveui\r\n",500,resolve);
-//     });
-//   }).then(function(d) {
-//     status.devEUI = d;
-//     return new Promise(function(resolve) {
-//       at.cmd("mac get band\r\n",500,resolve);
-//     });
-//   }).then(function(d) {
-//     status.band = d;
-//     return new Promise(function(resolve) {
-//       at.cmd("mac get dr\r\n",500,resolve);
-//     });
-//   }).then(function(d) {
-//     status.dataRate = d;
-//     return new Promise(function(resolve) {
-//       at.cmd("mac get rxdelay1\r\n",500,resolve);
-//     });
-//   }).then(function(d) {
-//     status.rxDelay1 = d;
-//     return new Promise(function(resolve) {
-//       at.cmd("mac get rxdelay2\r\n",500,resolve);
-//     });
-//   }).then(function(d) {
-//     status.rxDelay2 = d;
-//     return new Promise(function(resolve) {
-//       at.cmd("mac get rx2 868\r\n",500,resolve);
-//     });
-//   }).then(function(d) {
-//     status.rxFreq2_868 = d;
-//     callback(status);
-//   });
-// };
-
-// /** configure the LoRaWAN parameters
-//  devAddr = 4 byte address for this device as hex - eg. "01234567"
-//  nwkSKey = 16 byte network session key as hex - eg. "01234567012345670123456701234567"
-//  appSKey = 16 byte application session key as hex - eg. "01234567012345670123456701234567"
-// */
-// E32.prototype.LoRaWAN = function(devAddr,nwkSKey,appSKey, callback)
-// {
-//   var at = this.at;
-//   (new Promise(function(resolve) {
-//     at.cmd("mac set devaddr "+devAddr+"\r\n",500,resolve);
-//   })).then(function() {
-//     return new Promise(function(resolve) {
-//       at.cmd("mac set nwkskey "+nwkSKey+"\r\n",500,resolve);
-//     });
-//   }).then(function() {
-//     return new Promise(function(resolve) {
-//       at.cmd("mac set appskey "+appSKey+"\r\n",500,resolve);
-//     });
-//   }).then(function() {
-//     return new Promise(function(resolve) {
-//       at.cmd("mac join ABP\r\n",2000,resolve);
-//     });
-//   }).then(function(d) {
-//     callback((d=="ok")?null:((d===undefined?"Timeout":d)));
-//   });
-// };
-
-// /// Set whether the MAC (LoRaWan) is enabled or disabled
-// E32.prototype.setMAC = function(on, callback) {
-//   if (this.macOn==on) return callback();
-//   this.macOn = on;
-//   this.at.cmd("mac "+(on?"resume":"pause")+"\r\n",500,callback);
-// };
-
-// /// Transmit a message over the radio (not using LoRaWAN)
-// E32.prototype.radioTX = function(msg, callback) {
-//   var at = this.at;
-//   this.setMAC(false, function() {
-//     // convert to hex
-//     at.cmd("radio tx "+toHex(msg)+"\r\n",2000,callback);
-//   });
-// };
-
-// /** Transmit a message (using LoRaWAN). Will call the callback with 'null'
-// on success, or the error message on failure.
-
-// In LoRa, messages are received right after data is transmitted - if
-// a message was received, the 'message' event will be fired, which
-// can be received if you added a handler as follows:
-
-// lora.on('message', function(data) { ... });
-//  */
-// E32.prototype.loraTX = function(msg, callback) {
-//   var at = this.at;
-//   this.setMAC(true, function() {
-//     // convert to hex
-//     at.cmd("mac tx uncnf 1 "+toHex(msg)+"\r\n",2000,function(d) {
-//       callback((d=="ok")?null:((d===undefined?"Timeout":d)));
-//     });
-//   });
-// };
-
-
-// /** Receive a message from the radio (not using LoRaWAN) with the given timeout
-// in miliseconds. If the timeout is reached, callback will be called with 'undefined' */
-// E32.prototype.radioRX = function(timeout, callback) {
-//   var at = this.at;
-//   this.setMAC(false, function() {
-//     at.cmd("radio set wdt "+timeout+"\r\n", 500, function() {
-//       at.cmd("radio rx 0\r\n", timeout+500, function cb(d) {
-//         if (d=="ok") return cb;
-//         if (d===undefined || d.substr(0,10)!="radio_rx  ") { callback(); return; }
-//         callback(fromHex(d,10));
-//       });
-//     });
-//   });
-// };
+// E32.prototype.setParams = function(params, persistent) {
+//   msg = paramsToMsg(params);
+//   setCmd = persistent ? CMD.setPersistent : CMD.setTmp;
+//   if (this.mode === 'sleep') {
+//     return this.send(setCmd.concat(msg),1000)
+//       .then(this.parseParams)
+//   }
+//   else {
+//     lastMode = this.mode;
+//     return this.setMode('sleep')
+//       .then(()=>this.send(CMD.readTmpParams,1000))
+//       .then((d)=>this.parseParams(d))
+//       .then(()=>this.setMode(lastMode))
+//       .then(()=>this.parameters)
+//   }
 
 exports = E32;
