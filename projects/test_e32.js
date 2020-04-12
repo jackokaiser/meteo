@@ -3,7 +3,7 @@ function testSerial() {
   console.log("Testing serial connection");
   setWatch(console.log, A0, {repeat:true, edge:'both'});
   digitalWrite([C10,C11],0b11);
-  Serial1.setup(9600, { tx:B6, rx:B7, errors:true });
+  Serial1.setup(9600, { tx:B6, rx:B7 });
   function pureSerialTest() {
     Serial1.on('data', function (data) {
       console.log("data from serial: "+data);
@@ -16,12 +16,11 @@ function testSerial() {
     });
     Serial1.write([0xC3,0xC3,0xC3]);
   }
-  //pureSerialTest();
+  pureSerialTest();
   function atTest() {
     at = require("AT").connect(Serial1);
     at.cmd([0xc3, 0xc3, 0xc3],1000,console.log);
   }
-  atTest();
 }
 
 //testSerial();
@@ -37,15 +36,14 @@ var lora = new E32(Serial1, {
   debug: false
 });
 
-/*
-lora.reset()
-.then(lora.getVersion)
-.then(function(data) {
-  console.log("After all this work, version is: "+data);
-});
-*/
-//lora.getVersion()
-//.then(console.log);
+lora.getParams()
+.then(console.log);
 
-lora.getVersion()
-.then(v=>console.log(v));
+//lora.reset()
+//.then(()=>lora.getVersion())
+//.then((data)=> console.log("After all this work, version is: ",data))
+//.then(()=>lora.getParams())
+//.then(p=>console.log("params are: ",p));
+
+
+

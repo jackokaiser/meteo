@@ -67,6 +67,24 @@ const AIRRATE = {
   0b111: 19.2
 };
 
+const WAKEUP = {
+  0b000: 250,
+  0b001: 500,
+  0b010: 750,
+  0b011: 1000,
+  0b100: 1250,
+  0b101: 1500,
+  0b110: 1750,
+  0b111: 2000
+};
+
+const POWER = {
+  0b00: 30,
+  0b01: 27,
+  0b10: 24,
+  0b11: 21
+};
+
 const DEFAULTS = {
   ADDH: 0x00,
   ADDL: 0x00,
@@ -204,7 +222,13 @@ E32.prototype.parseParams = function(d) {
       airRate: AIRRATE[bytes[3] & 0b00000111]
     },
     CHAN: bytes[4],
-    OPTION: bytes[5]
+    OPTION: {
+      transmission: (bytes[5] >> 7) === 0 ? 'transparent' : 'fixed',
+      io: (bytes[5] >> 6 & 0b01) === 0 ? 'push-pull' : 'open-collector',
+      wakeup: WAKEUP[bytes[5] >> 3 & 0b00001],
+      FEC: bytes[5] >> 2 & 0b000001,
+      power: POWER[bytes[5] & 0b00000011]
+    }
   };
   return this.parameters;
 };
