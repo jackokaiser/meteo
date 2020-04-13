@@ -143,11 +143,9 @@ E32.prototype.receiveCmd = function(nbytes, callback) {
 
 E32.prototype.send = function(cmd, timeout, nRxBytes) {
   var msg = ""
-  console.log("Making promise ");
   return new Promise(resolve => {
     if ((nRxBytes) && (nRxBytes > 0)) {
       // We are expecting to receive some bytes of data
-      console.log("Register callback for "+nRxBytes+" bytes");
       var dataCallback = this.receiveCmd(nRxBytes, resolve);
       this.ser.on('data', dataCallback);
       this.ser.write(cmd);
@@ -239,7 +237,6 @@ E32.prototype.parseParams = function(d) {
 E32.prototype.paramsToBytes = function(params) {
   // defaults settings
   var bytes = [0xC0, 0x00, 0x00, 0x1A, 0x17, 0x44];
-
   if (params.saveOnDown == 0) bytes[0] = 0xC2;
   if (params.ADDH) bytes[1] = params.ADDH;
   if (params.ADDL) bytes[2] = params.ADDL;
@@ -293,7 +290,6 @@ E32.prototype.getParams = function() {
 
 E32.prototype.setParams = function(params) {
   var msg = this.paramsToBytes(params);
-  console.log('message command: ',msg);
   if (this.mode === 'sleep') {
     return this.send(msg,1000,6)
   }
