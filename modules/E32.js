@@ -1,5 +1,9 @@
 /* Copyright (c) 2020 Jacques Kaiser. See the file LICENSE for copying permission. */
 
+// questions:
+// - should be split into E32PROG and E32?
+// - is pure Promise interface alright, or should it implement callbacks too?
+
 function toBytes(d, startIdx) {
   console.log("Converting to bytes");
   var bytes = [];
@@ -168,7 +172,7 @@ E32.prototype.ready = function() {
 };
 
 E32.prototype.setMode = function(name) {
-  if (this.mode==name) return Promise.resolve();
+  if (this.mode==name) return;
   this.mode = name;
   if (this.mode === 'sleep') {
     this.ser.removeListener('data', this.radioRx);
@@ -176,24 +180,26 @@ E32.prototype.setMode = function(name) {
   else {
     this.ser.on('data', this.radioRx);
   }
-
   console.log("Changing mode to "+name);
   digitalWrite([this.options.M0,this.options.M1], MODE[name]);
-  return waiter(1);
 };
 
 // switch to sleep mode, reset and go back to previous mode
 E32.prototype.reset = function() {
   if (this.mode === 'sleep') {
     return this.send(CMD.reset,1000)
-      .then(()=>this.ready());
+      .then(()=>this.ready())
+      .then(()=>waiter(2500));
   }
   else {
     lastMode = this.mode;
-    return this.setMode('sleep')
+    this.setMode('sleep');
+    return Promise.resolve()
       .then(()=>this.send(CMD.reset,1000))
       .then(()=>this.ready())
-      .then(()=>this.setMode(lastMode));
+      .then(()=>this.setMode(lastMode))
+      .then(()=>this.ready())
+      .then(()=>waiter(2500));
   }
 };
 
@@ -250,18 +256,12 @@ E32.prototype.paramsToBytes = function(params) {
   }
   if (params.CHAN) bytes[4] = params.CHAN;
   if (params.OPTION) {
-    console.log('IO tran: ',bytes[5] & 1 << 6);
     if (params.OPTION.transmission == 'fixed') bytes[5] |= 1 << 7;
-    console.log('IO io: ',bytes[5] & 1 << 6);
     if (params.OPTION.io == 'push-pull') bytes[5] &= ~(1 << 6);
-    console.log('IO wak: ',bytes[5] & 1 << 6);
     if (params.OPTION.wakeup) bytes[5] = (bytes[5] & 0b11000111) | (I_WAKEUP[params.OPTION.wakeup] << 3);
-    console.log('IO fec: ',bytes[5] & 1 << 6);
     if (params.OPTION.FEC == 0) bytes[5] &= ~(1 << 2);
-    console.log('IO pow: ',bytes[5] & 1 << 6);
     if (params.OPTION.power) bytes[5] = (bytes[5] & 0b11111100) | (I_POWER[params.OPTION.power]);
   }
-  console.log('FEC: ',bytes[5] & 1 << 6);
   return bytes;
 };
 
@@ -273,7 +273,8 @@ E32.prototype.getVersion = function() {
   }
   else {
     lastMode = this.mode;
-    return this.setMode('sleep')
+    this.setMode('sleep');
+    return Promise.resolve()
       .then(()=>this.send(CMD.version,1000,4))
       .then((d)=>this.parseVersion(d))
       .then(()=>this.setMode(lastMode))
@@ -288,7 +289,8 @@ E32.prototype.getParams = function() {
   }
   else {
     lastMode = this.mode;
-    return this.setMode('sleep')
+    this.setMode('sleep');
+    return Promise.resolve()
       .then(()=>this.send(CMD.readParams,1000,6))
       .then((d)=>this.parseParams(d))
       .then(()=>this.setMode(lastMode))
@@ -303,7 +305,8 @@ E32.prototype.setParams = function(params) {
   }
   else {
     lastMode = this.mode;
-    return this.setMode('sleep')
+    this.setMode('sleep');
+    return Promise.resolve()
       .then(()=>this.send(CMD.readParams,1000,6))
       .then(()=>this.reset())
       .then(()=>this.setMode(lastMode))
