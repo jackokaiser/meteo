@@ -15,6 +15,14 @@ function waiter(ms) {
   });
 };
 
+function objectFlip(obj) {
+  const ret = {};
+  Object.keys(obj).forEach(key => {
+    ret[obj[key]] = key;
+  });
+  return ret;
+};
+
 // M0 and M1 in binary
 const MODE = {
   normal: 0b00,
@@ -27,8 +35,6 @@ const CMD = {
   readParams: [0xC1, 0xC1, 0xC1],
   version: [0xC3, 0xC3, 0xC3],
   reset: [0xC4, 0xC4, 0xC4],
-  setTmp: [0xC2],
-  setPersistent: [0xC0]
 };
 
 const FREQ = {
@@ -39,12 +45,16 @@ const FREQ = {
   0x46: 170
 };
 
+I_FREQ = objectFlip(FREQ);
+
 const PARITY = {
   0b00: '8N1',
   0b01: '8O1',
   0b10: '8E1',
   0b11: '8N1'
 };
+
+I_PARITY = objectFlip(PARITY);
 
 const BAUDRATE = {
   0b000: 1200,
@@ -55,6 +65,8 @@ const BAUDRATE = {
   0b110: 57600,
   0b111: 115200
 };
+
+I_BAUDRATE = objectFlip(BAUDRATE);
 
 const AIRRATE = {
   0b000: 0.3,
@@ -67,6 +79,8 @@ const AIRRATE = {
   0b111: 19.2
 };
 
+I_AIRRATE = objectFlip(AIRRATE);
+
 const WAKEUP = {
   0b000: 250,
   0b001: 500,
@@ -78,6 +92,8 @@ const WAKEUP = {
   0b111: 2000
 };
 
+I_WAKEUP = objectFlip(WAKEUP);
+
 const POWER = {
   0b00: 30,
   0b01: 27,
@@ -85,20 +101,7 @@ const POWER = {
   0b11: 21
 };
 
-const DEFAULTS = {
-  ADDH: 0x00,
-  ADDL: 0x00,
-  SPED: {
-    parity: 0b00,
-    baudrate: 0b011,
-    airRate: 0b010
-  },
-  CHAN: 0x00,
-  OPTION: {
-    transmission: 0b0,
-    io: 0b1,
-  }
-};
+I_POWER = objectFlip(POWER);
 
 /** Connect to a E32.
   First argument is the serial device, second is an
@@ -219,7 +222,7 @@ E32.prototype.parseParams = function(d) {
     SPED: {
       parity: PARITY[bytes[3] >> 6],
       baudrate: BAUDRATE[bytes[3] >> 3 & 0b00111],
-      airRate: AIRRATE[bytes[3] & 0b00000111]
+      airrate: AIRRATE[bytes[3] & 0b00000111]
     },
     CHAN: bytes[4],
     OPTION: {
@@ -231,6 +234,30 @@ E32.prototype.parseParams = function(d) {
     }
   };
   return this.parameters;
+};
+
+E32.prototype.paramsToBytes = function(params) {
+  // defaults settings
+  var bytes = [0xC0, 0x00, 0x00, 0x1A, 0x17, 0x44];
+
+  if (params.saveOnDown == 0) bytes[0] = 0xC2;
+  if (params.ADDH) bytes[1] = params.ADDH;
+  if (params.ADDL) bytes[2] = params.ADDL;
+
+  if (params.SPED) {
+    if (params.SPED.parity) bytes[3] = (bytes[3] & 0b00111111) | (I_PARITY[params.SPED.parity] << 6);
+    if (params.SPED.baudrate) bytes[3] = (bytes[3] & 0b11000111) | (I_BAUDRATE[params.SPED.baudrate] << 3);
+    if (params.SPED.airrate) bytes[3] = (bytes[3] & 0b11111000) | (I_AIRRATE[params.SPED.airrate]);
+  }
+  if (params.CHAN) bytes[4] = params.CHAN;
+  if (params.OPTION) {
+    if (params.OPTION.transmission == 'fixed') bytes[5] |= 1 << 7;
+    if (params.OPTION.io == 'push-pull') bytes[5] &= ~(1 << 6);
+    if (params.OPTION.wakeup) bytes[5] = (bytes[5] & 0b00111000) | (I_WAKEUP[params.OPTION.wakeup] << 3);
+    if (params.OPTION.FEC == 0) bytes[5] &= ~(1 << 2);
+    if (params.OPTION.power) bytes[5] = (bytes[5] & 0b00000011) | (I_POWER[params.OPTION.power]);
+  }
+  return bytes;
 };
 
 // switch to sleep mode, get version and go back to previous mode
@@ -264,20 +291,19 @@ E32.prototype.getParams = function() {
   }
 };
 
-// E32.prototype.setParams = function(params, persistent) {
-//   msg = paramsToMsg(params);
-//   setCmd = persistent ? CMD.setPersistent : CMD.setTmp;
-//   if (this.mode === 'sleep') {
-//     return this.send(setCmd.concat(msg),1000)
-//       .then(this.parseParams)
-//   }
-//   else {
-//     lastMode = this.mode;
-//     return this.setMode('sleep')
-//       .then(()=>this.send(CMD.readTmpParams,1000))
-//       .then((d)=>this.parseParams(d))
-//       .then(()=>this.setMode(lastMode))
-//       .then(()=>this.parameters)
-//   }
+E32.prototype.setParams = function(params) {
+  var msg = this.paramsToBytes(params);
+  console.log('message command: ',msg);
+  if (this.mode === 'sleep') {
+    return this.send(msg,1000,6)
+  }
+  else {
+    lastMode = this.mode;
+    return this.setMode('sleep')
+      .then(()=>this.send(CMD.readParams,1000,6))
+      .then(()=>this.reset())
+      .then(()=>this.setMode(lastMode))
+  }
+};
 
 exports = E32;
