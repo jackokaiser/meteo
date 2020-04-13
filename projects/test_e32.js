@@ -36,9 +36,31 @@ var lora = new E32(Serial1, {
   debug: false
 });
 
-lora.getParams()
+
+//lora.getParams()
+//.then(console.log);
+
+lora.setMode('sleep');
+
+newParams = {
+  SPED: {
+    airrate: 1.2
+  },
+  OPTION: {
+    power: 21
+  },
+  saveOnDown: true
+};
+
+
+lora.setParams(newParams)
+.then(()=>lora.getParams())
+.then(console.log)
+.then(()=>lora.reset())
+.then(()=>lora.getParams())
 .then(console.log);
 
+  
 //lora.reset()
 //.then(()=>lora.getVersion())
 //.then((data)=> console.log("After all this work, version is: ",data))
