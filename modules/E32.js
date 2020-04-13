@@ -215,8 +215,7 @@ E32.prototype.parseParams = function(d) {
   var bytes = toBytes(d, 0);
   this.parameters = {
     saveOnDown: bytes[0] === 0xC0,
-    ADDH: bytes[1],
-    ADDL: bytes[2],
+    ADDR: bytes[1] << 8 + bytes[2],
     SPED: {
       parity: PARITY[bytes[3] >> 6],
       baudrate: BAUDRATE[bytes[3] >> 3 & 0b00111],
@@ -236,10 +235,13 @@ E32.prototype.parseParams = function(d) {
 
 E32.prototype.paramsToBytes = function(params) {
   // defaults settings
-  var bytes = [0xC0, 0x00, 0x00, 0x1A, 0x17, 0x44];
+  // in doc, default channel is 0x17 but 868mhz seems to come with 0x06 as defaults
+  var bytes = [0xC0, 0x00, 0x00, 0x1A, 0x06, 0x44];
   if (params.saveOnDown == 0) bytes[0] = 0xC2;
-  if (params.ADDH) bytes[1] = params.ADDH;
-  if (params.ADDL) bytes[2] = params.ADDL;
+  if (params.ADDR) {
+    bytes[1] = params.ADDR >> 8;
+    bytes[2] = params.ADDR & 0x00FF;
+  }
 
   if (params.SPED) {
     if (params.SPED.parity) bytes[3] = (bytes[3] & 0b00111111) | (I_PARITY[params.SPED.parity] << 6);
@@ -248,12 +250,18 @@ E32.prototype.paramsToBytes = function(params) {
   }
   if (params.CHAN) bytes[4] = params.CHAN;
   if (params.OPTION) {
+    console.log('IO tran: ',bytes[5] & 1 << 6);
     if (params.OPTION.transmission == 'fixed') bytes[5] |= 1 << 7;
+    console.log('IO io: ',bytes[5] & 1 << 6);
     if (params.OPTION.io == 'push-pull') bytes[5] &= ~(1 << 6);
-    if (params.OPTION.wakeup) bytes[5] = (bytes[5] & 0b00111000) | (I_WAKEUP[params.OPTION.wakeup] << 3);
+    console.log('IO wak: ',bytes[5] & 1 << 6);
+    if (params.OPTION.wakeup) bytes[5] = (bytes[5] & 0b11000111) | (I_WAKEUP[params.OPTION.wakeup] << 3);
+    console.log('IO fec: ',bytes[5] & 1 << 6);
     if (params.OPTION.FEC == 0) bytes[5] &= ~(1 << 2);
-    if (params.OPTION.power) bytes[5] = (bytes[5] & 0b00000011) | (I_POWER[params.OPTION.power]);
+    console.log('IO pow: ',bytes[5] & 1 << 6);
+    if (params.OPTION.power) bytes[5] = (bytes[5] & 0b11111100) | (I_POWER[params.OPTION.power]);
   }
+  console.log('FEC: ',bytes[5] & 1 << 6);
   return bytes;
 };
 
